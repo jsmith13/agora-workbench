@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from .. import CodeExecutionServer, ServerConfig
+from .. import CodeExecutionServer, ServerConfig, SidecarConfig
 from ..auth import create_noop_auth_config
+from ..sessions import SessionConfig, SessionManager
 
 
 def _make_server() -> CodeExecutionServer:
@@ -19,6 +20,100 @@ def _make_server() -> CodeExecutionServer:
         server_config=config,
         auth_config=create_noop_auth_config(),
     )
+
+
+def test_server_config_propagates_isolated_kernel_network_mode():
+    config = ServerConfig(
+        name="isolated",
+        description="Test server",
+        type="uv",
+        dependency_file="# empty",
+        kernel_network_mode="isolated",
+    )
+
+    server = CodeExecutionServer(
+        server_config=config,
+        auth_config=create_noop_auth_config(),
+    )
+
+    assert server.session_manager.config.kernel_network_mode == "isolated"
+
+
+def test_server_config_overrides_custom_manager_network_mode():
+    manager = SessionManager(SessionConfig(kernel_network_mode="inherit"))
+    config = ServerConfig(
+        name="isolated",
+        description="Test server",
+        type="uv",
+        dependency_file="# empty",
+        kernel_network_mode="isolated",
+    )
+
+    server = CodeExecutionServer(
+        server_config=config,
+        session_manager=manager,
+        auth_config=create_noop_auth_config(),
+    )
+
+    assert server.session_manager is manager
+    assert manager.config.kernel_network_mode == "isolated"
+
+
+def test_custom_manager_can_enable_isolation_directly():
+    manager = SessionManager(SessionConfig(kernel_network_mode="isolated"))
+    config = ServerConfig(
+        name="isolated",
+        description="Test server",
+        type="uv",
+        dependency_file="# empty",
+    )
+
+    server = CodeExecutionServer(
+        server_config=config,
+        session_manager=manager,
+        auth_config=create_noop_auth_config(),
+    )
+
+    assert server.session_manager is manager
+    assert manager.config.kernel_network_mode == "isolated"
+
+
+def test_explicit_server_inherit_overrides_custom_manager_isolation():
+    manager = SessionManager(SessionConfig(kernel_network_mode="isolated"))
+    config = ServerConfig(
+        name="inherited",
+        description="Test server",
+        type="uv",
+        dependency_file="# empty",
+        kernel_network_mode="inherit",
+    )
+
+    server = CodeExecutionServer(
+        server_config=config,
+        session_manager=manager,
+        auth_config=create_noop_auth_config(),
+    )
+
+    assert server.session_manager is manager
+    assert manager.config.kernel_network_mode == "inherit"
+
+
+def test_custom_isolated_manager_rejects_loopback_sidecars():
+    manager = SessionManager(SessionConfig(kernel_network_mode="isolated"))
+    config = ServerConfig(
+        name="isolated",
+        description="Test server",
+        type="uv",
+        dependency_file="# empty",
+        sidecars=[SidecarConfig(name="model", command=["-m", "svc"], url_env_var="SVC_URL", port=9100)],
+    )
+
+    with pytest.raises(ValueError, match="cannot be combined with loopback HTTP sidecars"):
+        CodeExecutionServer(
+            server_config=config,
+            session_manager=manager,
+            auth_config=create_noop_auth_config(),
+        )
 
 
 class TestServerMain:
