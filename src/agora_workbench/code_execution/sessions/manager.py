@@ -314,6 +314,26 @@ class SessionManager:
             f"kernel_network_mode={self.config.kernel_network_mode}"
         )
 
+    def set_kernel_network_mode(self, kernel_network_mode: Literal["inherit", "isolated"]) -> None:
+        """Change the launch policy only when no kernel can retain the old policy."""
+        if kernel_network_mode not in ("inherit", "isolated"):
+            raise ValueError("kernel_network_mode must be 'inherit' or 'isolated'")
+
+        with self._session_lifecycle_lock:
+            if self.config.kernel_network_mode == kernel_network_mode:
+                return
+            active_session_ids = sorted(
+                set(self._kernels) | {session_id for session_id, starts in self._kernel_start_tasks.items() if starts}
+            )
+            if active_session_ids:
+                raise RuntimeError(
+                    "cannot change kernel_network_mode while kernels are running or starting: "
+                    f"{', '.join(active_session_ids)}"
+                )
+            self.config.kernel_network_mode = kernel_network_mode
+            self._kernel_network_isolation_validated = False
+            self._kernel_network_isolation_error = None
+
     def create_session(
         self,
         data: Any,

@@ -25,7 +25,11 @@ def test_namespace_launcher_enables_private_loopback_and_drops_capabilities():
         ) as execv,
         pytest.raises(RuntimeError, match="exec intercepted"),
     ):
-        network_isolation._namespace_launcher(["/env/bin/python", "-m", "ipykernel_launcher"])
+        network_isolation._namespace_launcher(
+            ["/env/bin/python", "-m", "ipykernel_launcher"],
+            ip="/usr/sbin/ip",
+            setpriv="/usr/bin/setpriv",
+        )
 
     run.assert_called_once_with(
         ["/usr/sbin/ip", "link", "set", "lo", "up"],

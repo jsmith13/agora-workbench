@@ -243,7 +243,14 @@ class TestUserTokenKernelPropagation:
         ]
         assert km.kernel_spec.argv[5] == sys.executable
         assert km.kernel_spec.argv[6].endswith("/sessions/network_isolation.py")
-        assert km.kernel_spec.argv[7:] == ["--", "/usr/bin/python"]
+        assert km.kernel_spec.argv[7:] == [
+            "--ip",
+            "/usr/bin/ip",
+            "--setpriv",
+            "/usr/bin/setpriv",
+            "--",
+            "/usr/bin/python",
+        ]
 
         ipc_dir = Path(km.ip).parent
         assert ipc_dir.is_dir()
@@ -359,6 +366,37 @@ class TestUserTokenKernelPropagation:
             patch(
                 "agora_workbench.code_execution.sessions.network_isolation.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ),
+            pytest.raises(RuntimeError, match="supports only the Jupyter local-provisioner"),
+        ):
+            await manager._get_or_create_kernel("sess-isolated")
+
+        km.start_kernel.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_isolated_kernel_rejects_non_local_default_provisioner(self):
+        manager = SessionManager(SessionConfig(kernel_network_mode="isolated"))
+        manager.create_session({}, "user", "", {}, session_id="sess-isolated")
+        km, _ = self._make_mock_kernel()
+        provisioner_factory = MagicMock()
+        provisioner_factory.default_provisioner_name = "remote-provisioner"
+
+        with (
+            patch(
+                "agora_workbench.code_execution.sessions.manager.AsyncKernelManager",
+                return_value=km,
+            ),
+            patch(
+                "agora_workbench.code_execution.sessions.network_isolation.shutil.which",
+                side_effect=lambda name: f"/usr/bin/{name}",
+            ),
+            patch(
+                "agora_workbench.code_execution.sessions.network_isolation.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ),
+            patch(
+                "agora_workbench.code_execution.sessions.network_isolation.KernelProvisionerFactory.instance",
+                return_value=provisioner_factory,
             ),
             pytest.raises(RuntimeError, match="supports only the Jupyter local-provisioner"),
         ):

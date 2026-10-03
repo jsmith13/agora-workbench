@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jupyter_client.provisioning.factory import KernelProvisionerFactory
+
 if TYPE_CHECKING:
     from jupyter_client.manager import AsyncKernelManager
 
@@ -37,18 +39,26 @@ def _isolation_prefix() -> list[str]:
         raise RuntimeError("isolated kernel networking is supported only on Linux")
 
     unshare = _required_executable("unshare", "the util-linux unshare executable")
-    _required_executable("setpriv", "the util-linux setpriv executable")
-    _required_executable("ip", "the iproute2 ip executable")
-    return [unshare, *_UNSHARE_ARGS, sys.executable, str(Path(__file__).resolve()), "--"]
+    setpriv = _required_executable("setpriv", "the util-linux setpriv executable")
+    ip = _required_executable("ip", "the iproute2 ip executable")
+    return [
+        unshare,
+        *_UNSHARE_ARGS,
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--ip",
+        ip,
+        "--setpriv",
+        setpriv,
+        "--",
+    ]
 
 
-def _namespace_launcher(kernel_argv: list[str]) -> None:
+def _namespace_launcher(kernel_argv: list[str], *, ip: str, setpriv: str) -> None:
     """Prepare the private netns, drop privileges, and exec the kernel."""
     if not kernel_argv:
         raise RuntimeError("isolated kernel networking requires a non-empty kernel command")
 
-    ip = _required_executable("ip", "the iproute2 ip executable")
-    setpriv = _required_executable("setpriv", "the util-linux setpriv executable")
     try:
         subprocess.run(
             [ip, "link", "set", "lo", "up"],
@@ -73,7 +83,10 @@ def _normalized_kernel_argv(kernel_manager: "AsyncKernelManager") -> list[str]:
     provisioner = metadata.get("kernel_provisioner", {})
     if not isinstance(provisioner, dict):
         raise RuntimeError("isolated kernel networking requires valid kernel_provisioner metadata")
-    provisioner_name = provisioner.get("provisioner_name", "local-provisioner")
+    provisioner_name = provisioner.get(
+        "provisioner_name",
+        KernelProvisionerFactory.instance().default_provisioner_name,
+    )
     if provisioner_name != "local-provisioner":
         raise RuntimeError(
             "isolated kernel networking supports only the Jupyter local-provisioner; "
@@ -145,7 +158,16 @@ def cleanup_isolated_kernel(ipc_dir: Path | None) -> None:
 
 
 if __name__ == "__main__":
-    separator = sys.argv.index("--") if "--" in sys.argv else -1
-    if separator < 0:
-        raise SystemExit("network-isolation launcher requires '--' before the kernel command")
-    _namespace_launcher(sys.argv[separator + 1 :])
+    launcher_args = sys.argv[1:]
+    if (
+        len(launcher_args) < 6
+        or launcher_args[0] != "--ip"
+        or launcher_args[2] != "--setpriv"
+        or launcher_args[4] != "--"
+    ):
+        raise SystemExit("network-isolation launcher requires '--ip <path> --setpriv <path> -- <kernel command>'")
+    _namespace_launcher(
+        launcher_args[5:],
+        ip=launcher_args[1],
+        setpriv=launcher_args[3],
+    )
