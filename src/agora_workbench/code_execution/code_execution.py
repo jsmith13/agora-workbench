@@ -194,7 +194,22 @@ def validate_code(server: "CodeExecutionServer", code: str) -> tuple[bool, Optio
         {"split", "rsplit", "partition", "rpartition", "join", "strip", "lstrip", "rstrip", "replace"}
     )
     safe_slash_ids: set[int] = set()
+    # Pre-collect the literal fragments of f-strings.  An f-string such as
+    # f"{done}/{total}" compiles to a JoinedStr whose ``.values`` hold the
+    # interleaved literal Constants ("/") and FormattedValue placeholders.
+    # ``ast.walk`` visits those inner Constants, but a fragment that merely
+    # begins with "/" because a "/" follows a placeholder is NOT a filesystem
+    # path literal — it is one piece of a display/format string.  These
+    # fragments must be exempt from the per-literal absolute-path check; the
+    # f-string is still validated as a whole via the JoinedStr branch below,
+    # which reconstructs the full template (including placeholder positions)
+    # and so still rejects genuine dynamic absolute paths like f"/etc/{x}".
+    fstring_fragment_ids: set[int] = set()
     for n in ast.walk(tree):
+        if isinstance(n, ast.JoinedStr):
+            for part in n.values:
+                if isinstance(part, ast.Constant):
+                    fstring_fragment_ids.add(id(part))
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
             attr = n.func.attr
             if attr in str_delim_methods:
@@ -260,6 +275,15 @@ def validate_code(server: "CodeExecutionServer", code: str) -> tuple[bool, Optio
 
         # --- 3. Absolute-path restriction ---
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # f-string literal fragments are validated holistically by the
+            # JoinedStr branch below (which reconstructs the full template),
+            # not as standalone path literals.  Skip them here so that a
+            # fragment beginning with "/" or containing ".." solely because
+            # of an adjacent placeholder — e.g. the "/" in f"{done}/{total}"
+            # — is not misread as an absolute path or traversal.
+            if id(node) in fstring_fragment_ids:
+                continue
+
             val = node.value.strip()
             if _contains_parent_traversal(val):
                 return False, agent_guidance.redirect(

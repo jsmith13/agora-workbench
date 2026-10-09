@@ -256,6 +256,55 @@ class TestPathRestriction:
         assert ok is True
 
 
+class TestFStringSlashNotAbsolutePath:
+    """An interior '/' between f-string placeholders is a display separator,
+    not an absolute path.  Regression for the false positive where
+    f"{done}/{total}" (and similar) was rejected as Absolute path '/'."""
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            'msg = f"coverage: {int(valid_xy.sum())}/{len(wa)}"',
+            'msg = f"{done}/{total}"',
+            'msg = f"rows {n}/{m} ok"',
+            'label = f"{a}/{b}/{c}"',
+            'ratio = f"{num}/{den}"',
+            # ".." that only appears because of an adjacent placeholder
+            # (e.g. a numeric range) must likewise not trip traversal.
+            'rng = f"{lo}..{hi}"',
+        ],
+    )
+    def test_fstring_interior_slash_accepted(self, server, code):
+        ok, msg = server.validate_code(code)
+        assert ok is True, msg
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            # Genuine dynamic absolute paths must STILL be rejected: the
+            # f-string, reconstructed as a whole, is rooted at '/'.
+            'user = "x"\np = f"/etc/{user}/secrets"',
+            'name = "x"\np = f"/{name}"',
+            'p = f"/var/log/{name}.log"',
+            # Nested f-string that resolves to an absolute path.
+            "name = 'x'\np = f\"{f'/etc/{name}'}\"",
+        ],
+    )
+    def test_fstring_genuine_absolute_path_still_rejected(self, server, code):
+        ok, msg = server.validate_code(code)
+        assert ok is False
+        assert "outside the allowed directories" in msg.lower()
+
+    def test_fstring_traversal_still_rejected(self, server):
+        ok, msg = server.validate_code('base = "x"\np = f"{base}/../etc/passwd"')
+        assert ok is False
+        assert "traversal" in msg.lower() or "not allowed" in msg.lower()
+
+    def test_fstring_allowed_prefix_accepted(self, server):
+        ok, msg = server.validate_code('name = "x"\np = f"/tmp/{name}.csv"')
+        assert ok is True, msg
+
+
 # =====================================================================
 # Integration: realistic multi-line code
 # =====================================================================
