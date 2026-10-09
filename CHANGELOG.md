@@ -10,6 +10,13 @@ changes that require action from existing users. Each entry there states who is 
 
 ## [Unreleased]
 
+### Fixed
+
+- Code validation no longer treats literal separators or format specifications
+  inside f-strings as standalone filesystem paths, avoiding false absolute-path
+  and traversal errors for display strings such as `f"{done}/{total}"`
+  ([#386](https://github.com/microsoft/agora-workbench/pull/386)).
+
 ## [0.4.0] - 2026-10-08
 
 ### Breaking
