@@ -205,11 +205,14 @@ def validate_code(server: "CodeExecutionServer", code: str) -> tuple[bool, Optio
     # which reconstructs the full template (including placeholder positions)
     # and so still rejects genuine dynamic absolute paths like f"/etc/{x}".
     fstring_fragment_ids: set[int] = set()
+    fstring_format_spec_ids: set[int] = set()
     for n in ast.walk(tree):
         if isinstance(n, ast.JoinedStr):
             for part in n.values:
                 if isinstance(part, ast.Constant):
                     fstring_fragment_ids.add(id(part))
+        if isinstance(n, ast.FormattedValue) and n.format_spec is not None:
+            fstring_format_spec_ids.add(id(n.format_spec))
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
             attr = n.func.attr
             if attr in str_delim_methods:
@@ -299,6 +302,10 @@ def validate_code(server: "CodeExecutionServer", code: str) -> tuple[bool, Optio
                     return False, _absolute_path_error(val, allowed_prefixes)
 
         elif isinstance(node, (ast.BinOp, ast.JoinedStr, ast.Call)):
+            # A format specification such as the "/>5" in f"{value:/>5}"
+            # controls presentation; it is not a standalone path expression.
+            if id(node) in fstring_format_spec_ids:
+                continue
             for candidate in _extract_dynamic_path_candidates(node, module_aliases):
                 val = candidate.strip()
                 if _contains_parent_traversal(val):

@@ -269,6 +269,7 @@ class TestFStringSlashNotAbsolutePath:
             'msg = f"rows {n}/{m} ok"',
             'label = f"{a}/{b}/{c}"',
             'ratio = f"{num}/{den}"',
+            'padded = f"{value:/>5}"',
             # ".." that only appears because of an adjacent placeholder
             # (e.g. a numeric range) must likewise not trip traversal.
             'rng = f"{lo}..{hi}"',
