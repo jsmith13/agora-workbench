@@ -1393,7 +1393,7 @@ class CodeExecutionServer(BaseMCPServer):
             except Exception as e:
                 LOGGER.warning(f"Failed to extract tool call trace: {e}")
 
-        return execution_result
+        return self._truncate_output_if_needed(execution_result)
 
     async def _execute_code_with_tracing(self, code: str, timeout: int) -> CodeExecutionResult:
         """
@@ -2535,7 +2535,7 @@ else:
                 item["result_variable"] = batch["result_variable"]
                 item["result"] = job.get("result_payload")
                 if job.get("result"):
-                    item["execution"] = job["result"]
+                    item["execution"] = execution_defaults._agent_execution_payload(job["result"])
             job_payloads.append(item)
 
         if running > 0:

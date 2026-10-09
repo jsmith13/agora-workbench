@@ -87,6 +87,7 @@ async def test_parallel_execute_for_session_returns_results(test_server):
         assert results_by_input[1]["double"] == 6
 
         for job in status["jobs"]:
+            assert "tool_calls" not in job["execution"]
             with pytest.raises(ValueError):
                 test_server.session_manager.get_session(job["session_id"])
     finally:

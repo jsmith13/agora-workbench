@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from ..code_execution import build_tool
+from ..code_execution import build_check_job_tool, build_tool
 from ..code_execution_models import ServerConfig
 from ..sessions import set_current_session
 
@@ -290,6 +290,33 @@ async def test_adaptive_slow_execution_promotes_to_background(test_server):
     assert final_status["status"] == "completed"
     assert final_status["success"] is True
     assert "slow result" in final_status["stdout"]
+
+
+@pytest.mark.asyncio
+async def test_check_job_does_not_flush_or_return_internal_tool_calls(test_server, monkeypatch):
+    monkeypatch.setattr(
+        test_server.session_manager,
+        "check_background_job",
+        lambda _job_id, caller_identity=None: {
+            "status": "failed",
+            "session_id": "session-1",
+            "success": False,
+            "tool_calls": [{"tool_name": "failed_tool", "result": {"large": "not returned"}}],
+        },
+    )
+    execute_code = AsyncMock()
+    monkeypatch.setattr(
+        test_server.session_manager,
+        "execute_code_for_session",
+        execute_code,
+    )
+
+    check_job = build_check_job_tool(test_server)
+    result = json.loads(await check_job(None, "job-1"))
+
+    assert "tool_calls" not in result
+    assert "failed_tool_calls" not in result
+    execute_code.assert_not_awaited()
 
 
 # ============================================================================
